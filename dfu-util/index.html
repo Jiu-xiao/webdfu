@@ -1,105 +1,395 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <link rel="stylesheet" type="text/css" href="../sakura.css" />
-    <title>WebUSB DFU</title>
-    <script src="dfu.js"></script>
-    <script src="dfuse.js"></script>
-    <script src="FileSaver.js"></script>
-    <script src="dfu-util.js"></script>
-    <style>
-      p.warning {
-        color: red;
-      }
-      p.error {
-        color: red;
-        font-weight: bold;
-      }
-      label.radio {
-        display: inline;
-      }
-      input:invalid {
-        color:red;
-      }
-    </style>
-  </head>
-  <body>
-    <a href="https://github.com/devanlai/webdfu"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://camo.githubusercontent.com/a6677b08c955af8400f44c6298f40e7d19cc5b2d/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f677261795f3664366436642e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png"></a>
-    <p>
-      <span id="status"></span>
-    </p>
-    <p>
-      <label for="vid">Vendor ID (hex):</label>
-      <input list="vendor_ids" type="text" name="vid" id="vid" maxlength="6" size="8" pattern="0x[A-Fa-f0-9]{1,4}"/>
-      <datalist id="vendor_ids">
-        <option value="0x1209">dapboot DFU bootloader</option>
-        <option value="0x0D28">mbed DAPLink</option>
-        <option value="0x1EAF">LeafLabs Maple/stm32duino bootloader</option>
-      </datalist>
-    </p>
-    <p>
-      <button id="connect">Connect</button>
-    </p>
-    <dialog id="interfaceDialog">
-      Your device has multiple DFU interfaces. Select one from the list below:
-      <form id="interfaceForm" method="dialog">
-        <button id="selectInterface" type="submit">Select interface</button>
-      </form>
-    </dialog>
-    <p>
-      <div id="usbInfo" style="white-space: pre"></div>
-      <div id="dfuInfo" style="white-space: pre"></div>
-    </p>
-    <fieldset>
-      <legend>Runtime mode</legend>
-      <button id="detach" disabled="true">Detach DFU</button>
-    </fieldset>
-    <fieldset>
-      <form id="configForm">
-        <label for="transferSize">Transfer Size:</label>
-        <input type="number" name="transferSize" id="transferSize" value="1024"/>
-        <div id="dfuseFields" hidden="true">
-          <label for="dfuseStartAddress">DfuSe Start Address:</label>
-          <input type="text" name="dfuseStartAddress" id="dfuseStartAddress" title="Initial memory address to read/write from (hex)" size="10" pattern="0x[A-Fa-f0-9]+"/>
-          <label for="dfuseUploadSize">DfuSe Upload Size:</label>
-          <input type="number" name="dfuseUploadSize" id="dfuseUploadSize" min="1"/>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>XRobot ATOM-IMU 固件更新</title>
+
+<link rel="stylesheet" href="../sakura.css" />
+<link rel="icon" type="image/jpeg" href="../img/XRobot.jpeg" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<script src="dfu.js"></script>
+<script src="dfuse.js"></script>
+<script src="FileSaver.js"></script>
+<script src="dfu-util.js"></script>
+
+<style>
+  :root{
+    --bg:#0f1221; --muted:#8b90ab; --fg:#e9ecff;
+    --border:#2a2f58; --ok:#31c48d; --err:#ff6b6b;
+    --primary:#2e63d8; --primary2:#3a79ff;
+    --code-bg:#192044; --code-fg:#ffe9a6;
+  }
+  html,body{height:100%}
+  body{
+    margin:0; padding:0 12px 28px;
+    background: radial-gradient(1200px 600px at 20% -10%, #1a224d 0%, transparent 60%),
+                radial-gradient(900px 700px at 120% 20%, #222b67 0%, transparent 55%),
+                var(--bg);
+    color:var(--fg); font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  .wrap{max-width:1100px;margin:0 auto}
+  .hero{display:flex;gap:12px;align-items:center;padding:14px 0}
+  .logo{width:52px;height:52px;object-fit:cover;border-radius:12px;border:1px solid var(--border);box-shadow:0 4px 18px rgba(0,0,0,.25)}
+  .title{margin:0;font-size:1.38rem;line-height:1.2}
+  .subtitle{margin:6px 0 0;color:#e6e9ff;font-size:1.18rem;font-weight:800}
+  .subtitle code{background:var(--code-bg); color:var(--code-fg); padding:2px 6px; border-radius:6px; border:1px solid #21285a; font-weight:800}
+  .card{border:1px solid var(--border); border-radius:14px; padding:14px 16px; background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02)); box-shadow:0 10px 30px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.04)}
+
+  .statusbar{margin-top:10px; border:1px solid var(--border); background:#0b0f27; border-radius:12px; padding:10px 12px; font-size:1.02rem; font-weight:800; display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .status{font-weight:800}
+  .status.ok{color:var(--ok)} .status.err{color:var(--err)}
+
+  /* 卡片内部：左操作区 + 右设备信息区 */
+  .cardBody{
+    margin-top:8px;
+    display:grid;
+    grid-template-columns:minmax(0,2.2fr) minmax(260px,1.2fr);
+    gap:18px;
+    align-items:flex-start;
+  }
+  @media (max-width:860px){
+    .cardBody{
+      grid-template-columns:1fr;
+    }
+  }
+
+  .mainColumn{}
+
+  .toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+
+  .btn{
+    appearance:none;border:none;cursor:pointer;
+    background:linear-gradient(180deg,var(--primary2),var(--primary));
+    color:#fff; border-radius:999px; padding:8px 18px;
+    font-weight:700; white-space:nowrap;
+  }
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* 文件选择：隐藏原生 input，用统一 .btn 触发 */
+  .fileInputWrap{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-width:260px;
+    flex:1 1 auto;
+  }
+  .fileInputWrap input[type="file"]{
+    position:absolute;
+    opacity:0;
+    width:0;
+    height:0;
+    pointer-events:none;
+  }
+  .fileName{
+    font-size:.82rem;
+    color:var(--muted);
+    max-width:220px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  @media (max-width:600px){
+    .fileInputWrap{flex-basis:100%}
+    .fileName{max-width:100%}
+  }
+
+  .hint{color:var(--muted); font-size:.86rem}
+  #postHint{font-size:1.02rem; font-weight:900; color:#e9ecff;margin-top:4px}
+
+  .logLabel{margin-top:10px; font-size:.85rem; color:var(--muted)}
+  .log{
+    font-family:ui-monospace,Consolas,monospace;
+    font-size:.80rem;
+    line-height:1.25;
+    background:#0b0f27;
+    border:1px solid #22274b;
+    border-radius:10px;
+    padding:8px 10px;
+    max-height:260px;
+    overflow:auto;
+    color:#cfd6ff;
+    margin-top:4px;
+  }
+
+  /* 右侧设备信息块 */
+  .devicePanel{
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px 12px;
+    background:rgba(0,0,0,.08);
+    font-size:.9rem;
+  }
+  .devicePanelTitle{
+    font-size:.9rem;
+    font-weight:700;
+    margin-bottom:6px;
+    color:#e9ecff;
+  }
+  .kv{display:flex; gap:6px; align-items:center; font-size:.9rem; margin:2px 0}
+  .kv b{color:#a4a9c4; font-size:.82rem}
+  .kv span{
+    max-width:100%;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    display:inline-block;
+  }
+
+  .visually-hidden{position:absolute!important;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
+</style>
+
+<script>
+/* 设备过滤 + 跳过复位 */
+(function lockAndValidate(){
+  if (!navigator.usb || !navigator.usb.requestDevice) return;
+  const orig = navigator.usb.requestDevice.bind(navigator.usb);
+  navigator.usb.requestDevice = function(_){
+    return orig({ filters: [{ vendorId: 0x0483, productId: 0xDF11 }] })
+      .then(dev=>{
+        const m = (dev.manufacturerName||'').trim();
+        const p = (dev.productName||'').trim();
+        if (m !== 'XRobot' || p !== 'Atom IMU Updater') {
+          throw new DOMException('Unsupported device', 'NotFoundError');
+        }
+        return dev;
+      });
+  };
+})();
+(function skipReset(){
+  if (window.USBDevice && USBDevice.prototype && USBDevice.prototype.reset){
+    USBDevice.prototype.reset = function(){
+      const logEl = document.getElementById('downloadLog_clone') || document.getElementById('downloadLog');
+      if (logEl){ logEl.textContent += "\n[已跳过自动复位] 请手动断开并重新插入设备以进入运行模式。"; }
+      return Promise.resolve();
+    };
+  }
+})();
+</script>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <img class="logo" src="../img/XRobot.jpeg" alt="XRobot Logo" />
+      <div>
+        <h1 class="title">ATOM-IMU 固件更新</h1>
+        <p class="subtitle">
+          支持设备：<b>XRobot · Atom IMU Updater</b>
+          （VID <code>0x0483</code> / PID <code>0xDF11</code>）
+        </p>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span id="status" class="status">未连接</span>
+      <span id="statusDevice" class="hint"></span>
+    </div>
+
+    <div class="card">
+      <div class="cardBody">
+        <!-- 左侧：操作 + 日志 -->
+        <div class="mainColumn">
+          <div class="toolbar">
+            <button id="connect" class="btn">连接设备</button>
+
+            <div class="fileInputWrap">
+              <input type="file" id="firmwareFile" name="file" accept=".bin,.dfu,.hex" />
+              <button id="chooseFile" class="btn" type="button">选择固件</button>
+              <span id="firmwareFileName" class="fileName">未选择文件</span>
+            </div>
+
+            <button id="download" class="btn" disabled>开始升级</button>
+          </div>
+
+          <div>
+            <div id="binaryInfo" class="hint" style="margin-top:4px"></div>
+            <p id="postHint" class="hint" style="display:none">升级完成。请拔掉并重新插入设备，或断电重上电。</p>
+          </div>
+
+          <div class="logLabel">日志</div>
+          <div id="downloadLog" class="log">[等待开始...]</div>
         </div>
-      
-        <legend>DFU mode</legend>
-        <fieldset>
-          <legend>Firmware Download (write to USB device)</legend>
-          <p>
-            <input type="file" id="firmwareFile" name="file" disabled="true"/>
-          </p>
-          <p>
-            <button id="download" disabled="true">Download</button>
-          </p>
-          <div class="log" id="downloadLog"></div>
-        </fieldset>
-        <fieldset>
-          <legend>Firmware Upload (read from USB device)</legend>
-          <p>
+
+        <!-- 右侧：设备信息块 -->
+        <aside class="devicePanel">
+          <div class="devicePanelTitle">设备信息</div>
+          <div class="kv"><b>连接状态</b><span id="statusDevicePanel">未连接</span></div>
+          <div class="kv"><b>厂商</b><span id="kvMfg">-</span></div>
+          <div class="kv"><b>产品</b><span id="kvName">-</span></div>
+          <div class="kv"><b>VID</b><span>0x0483</span></div>
+          <div class="kv"><b>PID</b><span>0xDF11</span></div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- 供 dfu-util.js 使用的结构，保持不变 -->
+    <div class="visually-hidden">
+      <p>
+        <label for="vid">Vendor ID (hex):</label>
+        <input list="vendor_ids" type="text" id="vid" value="0x0483" maxlength="6" size="8" pattern="0x[A-Fa-f0-9]{1,4}"/>
+        <datalist id="vendor_ids"><option value="0x0483">STMicroelectronics</option></datalist>
+      </p>
+
+      <dialog id="interfaceDialog">
+        Select DFU interface:
+        <form id="interfaceForm" method="dialog">
+          <button id="selectInterface" type="submit">Select interface</button>
+        </form>
+      </dialog>
+
+      <fieldset>
+        <legend>Runtime mode</legend>
+        <button id="detach" disabled="true">Detach DFU</button>
+      </fieldset>
+
+      <fieldset>
+        <form id="configForm">
+          <label for="transferSize">Transfer Size:</label>
+          <input type="number" id="transferSize" value="2048" disabled />
+          <div id="dfuseFields" hidden="true">
+            <label for="dfuseStartAddress">DfuSe Start Address:</label>
+            <input type="text" id="dfuseStartAddress" size="10" pattern="0x[A-Fa-f0-9]+"/>
+            <label for="dfuseUploadSize">DfuSe Upload Size:</label>
+            <input type="number" id="dfuseUploadSize" min="1"/>
+          </div>
+
+          <legend>DFU mode</legend>
+          <fieldset>
+            <legend>Firmware Download</legend>
+            <input type="file" id="firmwareFile_clone" name="file" disabled="true"/>
+            <button id="download_clone" disabled="true">Download</button>
+            <div id="downloadLog_clone"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Firmware Upload</legend>
             <button id="upload" disabled="true">Upload</button>
-          </p>
-          <div class="log" id="uploadLog"></div>
-        </fieldset>
-      </form>
-    </fieldset>
-    <h1>About</h1>
-    <p>
-      This is a proof-of-concept demo of host <a href="http://wiki.openmoko.org/wiki/USB_DFU">USB DFU</a> drivers in Javascript utilizing the <a href="https://wicg.github.io/webusb/">WebUSB</a> draft standard to implement USB firmware updates from the browser.
-    </p>
-    <h1>Prerequisites</h1>
-    <p>In order to run this demo, you will need:</p>
-    <ul>
-      <li>
-        <p>An up-to-date version of Chrome, at least version 61 or newer</p>
-      </li>
-      <li>
-        <p>A USB DFU class device</p>
-        <p>For a WebUSB friendly USB DFU bootloader that can be flashed onto <a href="http://wiki.stm32duino.com/index.php?title=Blue_Pill">inexpensive STM32F103 boards</a>, check out the <a href="https://github.com/devanlai/dapboot">dapboot</a> project.</p>
-        <p>Some recent STM32 parts have on-chip USB DfuSe bootloaders that are supported by this site.</p>
-      </li>
-    <ul>
-  </body>
+            <div id="uploadLog"></div>
+          </fieldset>
+
+          <pre id="usbInfo"></pre>
+          <pre id="dfuInfo"></pre>
+        </form>
+      </fieldset>
+    </div>
+  </div>
+
+<script>
+(function bridgeUI(){
+  const userFile = document.getElementById('firmwareFile');
+  const hiddenFile = document.getElementById('firmwareFile_clone');
+  const userFileName = document.getElementById('firmwareFileName');
+  const chooseBtn = document.getElementById('chooseFile');
+  const userBtn  = document.getElementById('download');
+  const hiddenBtn= document.getElementById('download_clone');
+  const logEl    = document.getElementById('downloadLog');
+  const logShadow= document.getElementById('downloadLog_clone');
+  const statusEl = document.getElementById('status');
+  const postHint = document.getElementById('postHint');
+
+  // 「开始升级」跟 dfu 的 Download 按钮状态同步
+  const syncEnabled = ()=>{
+    userBtn.disabled = hiddenBtn.disabled;
+  };
+  (new MutationObserver(syncEnabled))
+    .observe(hiddenBtn,{attributes:true,attributeFilter:['disabled']});
+  syncEnabled();
+
+  // 选择文件按钮：触发隐藏 input
+  chooseBtn.addEventListener('click', ()=>{ userFile.click(); });
+
+  // 文件选择：同步给 dfu-util，并显示文件名
+  userFile.addEventListener('change', ()=>{
+    try { hiddenFile.files = userFile.files; } catch(_) {}
+    const f = userFile.files && userFile.files[0];
+    userFileName.textContent = f ? f.name : '未选择文件';
+  });
+
+  // 开始升级：只改状态文本，其余交给 dfu-util
+  userBtn.addEventListener('click', ()=>{
+    postHint.style.display = 'none';
+    statusEl.textContent = '升级中...';
+    statusEl.classList.remove('ok','err');
+    hiddenBtn.click();
+  });
+
+  // 日志：直接把 dfu-util 的日志 DOM 原样显示出来
+  const syncFromShadow = ()=>{
+    const html = logShadow.innerHTML;
+    if (html && html.trim()) {
+      logEl.innerHTML = html;
+    } else {
+      logEl.textContent = '[等待开始...]';
+    }
+
+    const text = logShadow.textContent || '';
+
+    if (/done|完成|manifest/i.test(text)){
+      postHint.style.display = '';
+      statusEl.textContent = '升级完成（请拔插设备）';
+      statusEl.classList.add('ok'); statusEl.classList.remove('err');
+    }
+
+    if (/error|failed|失败/i.test(text)){
+      statusEl.textContent = '升级失败，请查看日志';
+      statusEl.classList.add('err'); statusEl.classList.remove('ok');
+    }
+
+    if (/Error during reset/i.test(text) && !/已跳过自动复位/.test(logEl.textContent)){
+      logEl.textContent += "\n[已跳过自动复位] 请手动断开并重新插入设备以进入运行模式。";
+      postHint.style.display = '';
+    }
+  };
+
+  new MutationObserver(syncFromShadow)
+    .observe(logShadow,{
+      childList:true,
+      subtree:true,
+      characterData:true,
+      attributes:true
+    });
+})();
+</script>
+
+<script>
+(function showConnectedDevice(){
+  const usbInfo = document.getElementById('usbInfo');
+  const kvMfg = document.getElementById('kvMfg');
+  const kvName= document.getElementById('kvName');
+  const statusDevice = document.getElementById('statusDevice');
+  const statusDevicePanel = document.getElementById('statusDevicePanel');
+
+  const fill = (t) => {
+    const mfg  = /MFG:\s*(.+)/i.exec(t);
+    const name = /Name:\s*(.+)/i.exec(t);
+    if (mfg)  kvMfg.textContent = mfg[1].trim();
+    if (name){
+      const n = name[1].trim();
+      kvName.textContent = n;
+      const msg = '已连接：' + n;
+      statusDevice.textContent = msg;
+      statusDevicePanel.textContent = msg;
+    }
+  };
+
+  new MutationObserver(()=>{ const t=usbInfo.textContent||''; if(t) fill(t); })
+    .observe(usbInfo,{childList:true,subtree:true,characterData:true});
+
+  document.getElementById('connect').addEventListener('click', ()=>{
+    setTimeout(()=>fill(usbInfo.textContent||''), 800);
+  });
+})();
+
+(function lockVid(){
+  const vid = document.getElementById('vid');
+  if (vid){ vid.value = '0x0483'; vid.setAttribute('readonly','readonly'); }
+})();
+</script>
+</body>
 </html>
